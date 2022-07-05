@@ -52,6 +52,10 @@ type ResourceId interface {
 
 	// RouteScopeString is similar as ScopeString, but only for the router scope (i.e. the last scope).
 	RouteScopeString() string
+
+	// Normalize normalizes the invariant parts (e.g. Provider, Types) of the id  based on the input scope string.
+	// The input scope string must be the same as calling the `ScopeString` of this id, except the casing.
+	Normalize(string) error
 }
 
 func ParseResourceId(id string) (ResourceId, error) {
@@ -188,15 +192,23 @@ func (id *TenantId) RouteScopeString() string {
 	return id.ScopeString()
 }
 
+func (id *TenantId) Normalize(string) error {
+	return nil
+}
+
 func (*TenantId) isRootScope() {}
 
 // SubscriptionId represents the subscription scope
 type SubscriptionId struct {
 	// Id is the UUID of this subscription
 	Id string
+
+	scopeStr string
 }
 
 var _ RootScope = &SubscriptionId{}
+
+var defaultSubscriptionScopeStr = "/subscriptions"
 
 func (id *SubscriptionId) RootScope() RootScope {
 	return id
@@ -223,7 +235,11 @@ func (*SubscriptionId) Names() []string {
 }
 
 func (id *SubscriptionId) String() string {
-	return "/subscriptions/" + id.Id
+	scope := defaultSubscriptionScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	return scope + "/" + id.Id
 }
 
 func (id *SubscriptionId) Equal(oid ResourceId) bool {
@@ -237,11 +253,23 @@ func (id *SubscriptionId) ScopeEqual(oid ResourceId) bool {
 }
 
 func (id *SubscriptionId) ScopeString() string {
-	return "/subscriptions"
+	scope := defaultSubscriptionScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	return scope
 }
 
 func (id *SubscriptionId) RouteScopeString() string {
 	return id.ScopeString()
+}
+
+func (id *SubscriptionId) Normalize(scopeStr string) error {
+	if !strings.EqualFold(id.ScopeString(), scopeStr) {
+		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
+	}
+	id.scopeStr = scopeStr
+	return nil
 }
 
 func (*SubscriptionId) isRootScope() {}
@@ -252,9 +280,13 @@ type ResourceGroup struct {
 	SubscriptionId string
 	// Name is the name of this resource group
 	Name string
+
+	scopeStr string
 }
 
 var _ RootScope = &ResourceGroup{}
+
+var defaultResourceGroupScopeStr = "/subscriptions/resourceGroups"
 
 func (id *ResourceGroup) RootScope() RootScope {
 	return id
@@ -281,7 +313,13 @@ func (*ResourceGroup) Names() []string {
 }
 
 func (id *ResourceGroup) String() string {
-	return "/subscriptions/" + id.SubscriptionId + "/resourceGroups/" + id.Name
+	scope := defaultResourceGroupScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	segs := strings.Split(scope, "/")
+	return "/" + segs[1] + "/" +
+		id.SubscriptionId + "/" + segs[2] + "/" + id.Name
 }
 
 func (id *ResourceGroup) Equal(oid ResourceId) bool {
@@ -295,11 +333,23 @@ func (id *ResourceGroup) ScopeEqual(oid ResourceId) bool {
 }
 
 func (id *ResourceGroup) ScopeString() string {
-	return "/subscriptions/resourceGroups"
+	scope := defaultResourceGroupScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	return scope
 }
 
 func (id *ResourceGroup) RouteScopeString() string {
 	return id.ScopeString()
+}
+
+func (id *ResourceGroup) Normalize(scopeStr string) error {
+	if !strings.EqualFold(id.ScopeString(), scopeStr) {
+		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
+	}
+	id.scopeStr = scopeStr
+	return nil
 }
 
 func (*ResourceGroup) isRootScope() {}
@@ -308,9 +358,13 @@ func (*ResourceGroup) isRootScope() {}
 type ManagementGroup struct {
 	// Name is the name of this management group
 	Name string
+
+	scopeStr string
 }
 
 var _ RootScope = &ManagementGroup{}
+
+var defaultManagementGroupScopeStr = "/Microsoft.Management/managementGroups"
 
 func (id *ManagementGroup) RootScope() RootScope {
 	return id
@@ -337,7 +391,12 @@ func (*ManagementGroup) Names() []string {
 }
 
 func (id *ManagementGroup) String() string {
-	return formatScope(id.Provider(), id.Types(), []string{id.Name})
+	scope := defaultManagementGroupScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	segs := strings.Split(scope, "/")
+	return "/providers/" + segs[1] + "/" + segs[2] + "/" + id.Name
 }
 
 func (id *ManagementGroup) Equal(oid ResourceId) bool {
@@ -351,14 +410,23 @@ func (id *ManagementGroup) ScopeEqual(oid ResourceId) bool {
 }
 
 func (id *ManagementGroup) ScopeString() string {
-	var segs []string
-	segs = append(segs, id.Provider())
-	segs = append(segs, id.Types()...)
-	return "/" + strings.Join(segs, "/")
+	scope := defaultManagementGroupScopeStr
+	if id.scopeStr != "" {
+		scope = id.scopeStr
+	}
+	return scope
 }
 
 func (id *ManagementGroup) RouteScopeString() string {
 	return id.ScopeString()
+}
+
+func (id *ManagementGroup) Normalize(scopeStr string) error {
+	if !strings.EqualFold(id.ScopeString(), scopeStr) {
+		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
+	}
+	id.scopeStr = scopeStr
+	return nil
 }
 
 func (ManagementGroup) isRootScope() {}
@@ -484,7 +552,6 @@ func (id *ScopedResourceId) RouteScopeString() string {
 
 // Normalize normalizes the invariant parts (e.g. Provider, Types) of the id  based on the input scope string.
 // The input scope string must be the same as calling the `ScopeString` of this id, except the casing.
-// Note that the root scope can't be normalized at this moment.
 func (id *ScopedResourceId) Normalize(scopeStr string) error {
 	if !strings.EqualFold(id.ScopeString(), scopeStr) {
 		return fmt.Errorf("mismatch scope string (%q) for id %q", scopeStr, id.String())
@@ -493,7 +560,8 @@ func (id *ScopedResourceId) Normalize(scopeStr string) error {
 	traverseScopes(id, func(id ResourceId) {
 		if id.ParentScope() == nil {
 			if _, ok := id.(*TenantId); !ok {
-				scopeStr = strings.TrimPrefix(scopeStr, id.ScopeString())
+				id.Normalize(scopeStr[:len(id.ScopeString())])
+				scopeStr = scopeStr[len(id.ScopeString()):]
 			}
 			return
 		}

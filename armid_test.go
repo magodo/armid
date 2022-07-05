@@ -601,14 +601,14 @@ func TestResourceId_RouteScopeString(t *testing.T) {
 func TestScopedResourceId_Normalize(t *testing.T) {
 	cases := []struct {
 		name     string
-		id       ScopedResourceId
+		id       ResourceId
 		scopeStr string
 		expect   string
 		err      string
 	}{
 		{
 			name: "Mismatch scope string",
-			id: ScopedResourceId{
+			id: &ScopedResourceId{
 				AttrParentScope: &TenantId{},
 				AttrProvider:    "Microsoft.Foo",
 				AttrTypes:       []string{"foos"},
@@ -618,8 +618,37 @@ func TestScopedResourceId_Normalize(t *testing.T) {
 			err:      `mismatch scope string ("/Microsoft.Bar/foos") for id "/providers/Microsoft.Foo/foos/foo1"`,
 		},
 		{
+			name:     "Tenant root scope",
+			id:       &TenantId{},
+			scopeStr: "/",
+			expect:   "/",
+		},
+		{
+			name:     "Subscription root scope",
+			id:       &SubscriptionId{Id: "sub1"},
+			scopeStr: "/SUBSCRIPTIONS",
+			expect:   "/SUBSCRIPTIONS/sub1",
+		},
+		{
+			name: "Resource Group root scope",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "grp1",
+			},
+			scopeStr: "/SUBSCRIPTIONS/RESOURCEGROUPS",
+			expect:   "/SUBSCRIPTIONS/sub1/RESOURCEGROUPS/grp1",
+		},
+		{
+			name: "Management Group root scope",
+			id: &ManagementGroup{
+				Name: "grp1",
+			},
+			scopeStr: "/MICROSOFT.MANAGEMENT/MANAGEMENTGROUPS",
+			expect:   "/providers/MICROSOFT.MANAGEMENT/MANAGEMENTGROUPS/grp1",
+		},
+		{
 			name: "Root Scoped Resource under tenant",
-			id: ScopedResourceId{
+			id: &ScopedResourceId{
 				AttrParentScope: &TenantId{},
 				AttrProvider:    "MICROSOFT.Foo",
 				AttrTypes:       []string{"FOOS"},
@@ -629,8 +658,8 @@ func TestScopedResourceId_Normalize(t *testing.T) {
 			expect:   "/providers/microsoft.foo/foos/foo1",
 		},
 		{
-			name: "Root Scoped Resource under resource group",
-			id: ScopedResourceId{
+			name: "Root Scoped Resource under resource group (scopestr lower casing)",
+			id: &ScopedResourceId{
 				AttrParentScope: &ResourceGroup{
 					SubscriptionId: "sub1",
 					Name:           "rg1",
@@ -639,8 +668,22 @@ func TestScopedResourceId_Normalize(t *testing.T) {
 				AttrTypes:    []string{"FOOS"},
 				AttrNames:    []string{"foo1"},
 			},
-			scopeStr: "/subscriptions/resourceGroups/microsoft.foo/foos",
-			expect:   "/subscriptions/sub1/resourceGroups/rg1/providers/microsoft.foo/foos/foo1",
+			scopeStr: "/subscriptions/resourcegroups/microsoft.foo/foos",
+			expect:   "/subscriptions/sub1/resourcegroups/rg1/providers/microsoft.foo/foos/foo1",
+		},
+		{
+			name: "Root Scoped Resource under resource group (scopestr upper casing)",
+			id: &ScopedResourceId{
+				AttrParentScope: &ResourceGroup{
+					SubscriptionId: "sub1",
+					Name:           "rg1",
+				},
+				AttrProvider: "MICROSOFT.Foo",
+				AttrTypes:    []string{"FOOS"},
+				AttrNames:    []string{"foo1"},
+			},
+			scopeStr: "/SUBSCRIPTIONS/RESOURCEGROUPS/MICROSOFT.FOO/FOOS",
+			expect:   "/SUBSCRIPTIONS/sub1/RESOURCEGROUPS/rg1/providers/MICROSOFT.FOO/FOOS/foo1",
 		},
 	}
 
