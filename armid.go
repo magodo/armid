@@ -56,6 +56,9 @@ type ResourceId interface {
 	// Normalize normalizes the invariant parts (e.g. Provider, Types) of the id  based on the input scope string.
 	// The input scope string must be the same as calling the `ScopeString` of this id, except the casing.
 	Normalize(string) error
+
+	// Clone deep clones a ResourceId
+	Clone() ResourceId
 }
 
 func ParseResourceId(id string) (ResourceId, error) {
@@ -196,6 +199,10 @@ func (id *TenantId) Normalize(string) error {
 	return nil
 }
 
+func (id *TenantId) Clone() ResourceId {
+	return &TenantId{}
+}
+
 func (*TenantId) isRootScope() {}
 
 // SubscriptionId represents the subscription scope
@@ -270,6 +277,13 @@ func (id *SubscriptionId) Normalize(scopeStr string) error {
 	}
 	id.scopeStr = scopeStr
 	return nil
+}
+
+func (id *SubscriptionId) Clone() ResourceId {
+	return &SubscriptionId{
+		Id:       id.Id,
+		scopeStr: id.scopeStr,
+	}
 }
 
 func (*SubscriptionId) isRootScope() {}
@@ -352,6 +366,14 @@ func (id *ResourceGroup) Normalize(scopeStr string) error {
 	return nil
 }
 
+func (id *ResourceGroup) Clone() ResourceId {
+	return &ResourceGroup{
+		SubscriptionId: id.SubscriptionId,
+		Name:           id.Name,
+		scopeStr:       id.scopeStr,
+	}
+}
+
 func (*ResourceGroup) isRootScope() {}
 
 // ManagementGroup represents the management group scope
@@ -427,6 +449,13 @@ func (id *ManagementGroup) Normalize(scopeStr string) error {
 	}
 	id.scopeStr = scopeStr
 	return nil
+}
+
+func (id *ManagementGroup) Clone() ResourceId {
+	return &ManagementGroup{
+		Name:     id.Name,
+		scopeStr: id.scopeStr,
+	}
 }
 
 func (ManagementGroup) isRootScope() {}
@@ -578,6 +607,15 @@ func (id *ScopedResourceId) Normalize(scopeStr string) error {
 		rid.AttrTypes = segs[1:]
 	})
 	return nil
+}
+
+func (id *ScopedResourceId) Clone() ResourceId {
+	return &ScopedResourceId{
+		AttrParentScope: id.ParentScope().Clone(),
+		AttrProvider:    id.AttrProvider,
+		AttrTypes:       append([]string{}, id.AttrTypes...),
+		AttrNames:       append([]string{}, id.AttrNames...),
+	}
 }
 
 // NormalizeRouteScope is similar to Normalize, while only for the current route scope, and didn't affect the parent scopes.

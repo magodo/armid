@@ -701,6 +701,114 @@ func TestScopedResourceId_Normalize(t *testing.T) {
 	}
 }
 
+func TestScopedResourceId_Clone(t *testing.T) {
+	cases := []struct {
+		name   string
+		id     ResourceId
+		mutate func(ResourceId)
+		expect ResourceId
+	}{
+		{
+			name:   "Tenant root scope",
+			id:     &TenantId{},
+			mutate: nil,
+			expect: &TenantId{},
+		},
+		{
+			name: "Subscription root scope",
+			id:   &SubscriptionId{Id: "sub1"},
+			mutate: func(ri ResourceId) {
+				id := ri.(*SubscriptionId)
+				id.Id = "sub2"
+			},
+			expect: &SubscriptionId{Id: "sub1"},
+		},
+		{
+			name: "Resource Group root scope",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "grp1",
+			},
+			mutate: func(ri ResourceId) {
+				id := ri.(*ResourceGroup)
+				id.SubscriptionId = "sub2"
+			},
+			expect: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "grp1",
+			},
+		},
+		{
+			name: "Management Group root scope",
+			id: &ManagementGroup{
+				Name: "grp1",
+			},
+			mutate: func(ri ResourceId) {
+				id := ri.(*ManagementGroup)
+				id.Name = "grp2"
+			},
+			expect: &ManagementGroup{
+				Name: "grp1",
+			},
+		},
+		{
+			name: "Root Scoped Resource under tenant",
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos"},
+				AttrNames:       []string{"foo1"},
+			},
+			mutate: func(ri ResourceId) {
+				id := ri.(*ScopedResourceId)
+				id.AttrNames[0] = "foo2"
+			},
+			expect: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos"},
+				AttrNames:       []string{"foo1"},
+			},
+		},
+		{
+			name: "Root Scoped Resource under resource group",
+			id: &ScopedResourceId{
+				AttrParentScope: &ResourceGroup{
+					SubscriptionId: "sub1",
+					Name:           "rg1",
+				},
+				AttrProvider: "Microsoft.Foo",
+				AttrTypes:    []string{"foos"},
+				AttrNames:    []string{"foo1"},
+			},
+			mutate: func(ri ResourceId) {
+				id := ri.(*ScopedResourceId)
+				id.AttrNames[0] = "foo2"
+			},
+			expect: &ScopedResourceId{
+				AttrParentScope: &ResourceGroup{
+					SubscriptionId: "sub1",
+					Name:           "rg1",
+				},
+				AttrProvider: "Microsoft.Foo",
+				AttrTypes:    []string{"foos"},
+				AttrNames:    []string{"foo1"},
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			id := tt.id
+			cid := id.Clone()
+			if tt.mutate != nil {
+				tt.mutate(id)
+			}
+			require.Equal(t, tt.expect, cid)
+		})
+	}
+}
+
 func TestScopedResourceId_NormalizeRouteScope(t *testing.T) {
 	cases := []struct {
 		name     string
