@@ -41,7 +41,7 @@ type ResourceId interface {
 	// String returns the resource id literal.
 	String() string
 
-	// Equal checkes the equality of two resource id. They are regarded as equal only when all the components are equal.
+	// Equal checkes the equality of two resource id. They are regarded as equal only when all the components are equal (case insensitively).
 	Equal(ResourceId) bool
 
 	// ScopeEqual checkes the equality of two resource id without taking the Names() into consideration.
@@ -251,7 +251,7 @@ func (id *SubscriptionId) String() string {
 
 func (id *SubscriptionId) Equal(oid ResourceId) bool {
 	oSubId, ok := oid.(*SubscriptionId)
-	return ok && oSubId.Id == id.Id
+	return ok && strings.EqualFold(oSubId.Id, id.Id)
 }
 
 func (id *SubscriptionId) ScopeEqual(oid ResourceId) bool {
@@ -338,7 +338,7 @@ func (id *ResourceGroup) String() string {
 
 func (id *ResourceGroup) Equal(oid ResourceId) bool {
 	oRgId, ok := oid.(*ResourceGroup)
-	return ok && oRgId.SubscriptionId == id.SubscriptionId && oRgId.Name == id.Name
+	return ok && strings.EqualFold(oRgId.SubscriptionId, id.SubscriptionId) && strings.EqualFold(oRgId.Name, id.Name)
 }
 
 func (id *ResourceGroup) ScopeEqual(oid ResourceId) bool {
@@ -423,7 +423,7 @@ func (id *ManagementGroup) String() string {
 
 func (id *ManagementGroup) Equal(oid ResourceId) bool {
 	oMgId, ok := oid.(*ManagementGroup)
-	return ok && oMgId.Name == id.Name
+	return ok && strings.EqualFold(oMgId.Name, id.Name)
 }
 
 func (id *ManagementGroup) ScopeEqual(oid ResourceId) bool {
@@ -524,14 +524,14 @@ func (id *ScopedResourceId) Equal(oid ResourceId) bool {
 	if !id.AttrParentScope.Equal(oRid.AttrParentScope) {
 		return false
 	}
-	if id.AttrProvider != oRid.AttrProvider {
+	if !strings.EqualFold(id.AttrProvider, oRid.AttrProvider) {
 		return false
 	}
 	if len(id.AttrTypes) != len(oRid.AttrTypes) {
 		return false
 	}
 	for i := 0; i < len(id.AttrTypes); i++ {
-		if id.AttrTypes[i] != oRid.AttrTypes[i] {
+		if !strings.EqualFold(id.AttrTypes[i], oRid.AttrTypes[i]) {
 			return false
 		}
 	}
@@ -539,7 +539,7 @@ func (id *ScopedResourceId) Equal(oid ResourceId) bool {
 		return false
 	}
 	for i := 0; i < len(id.AttrNames); i++ {
-		if id.AttrNames[i] != oRid.AttrNames[i] {
+		if !strings.EqualFold(id.AttrNames[i], oRid.AttrNames[i]) {
 			return false
 		}
 	}

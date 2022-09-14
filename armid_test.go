@@ -338,6 +338,22 @@ func TestResourceId_Equal(t *testing.T) {
 			expect: true,
 		},
 		{
+			name: "Root Scoped Resource under tenant equals to itself with different casing",
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "MICROSOFT.FOO",
+				AttrTypes:       []string{"FOOS"},
+				AttrNames:       []string{"FOO1"},
+			},
+			oid: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos"},
+				AttrNames:       []string{"foo1"},
+			},
+			expect: true,
+		},
+		{
 			name: "Root Scoped Resource under tenant not equals to different resource id",
 			id: &ScopedResourceId{
 				AttrParentScope: &TenantId{},
