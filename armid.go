@@ -18,8 +18,8 @@ type ResourceId interface {
 	// - /subscriptions/0000/resourceGroups/rg1 									-(parent scope)-> nil
 	ParentScope() ResourceId
 
-	// Parent returns the parent resource. The parent resource belongs to the same provider as the current resource.
-	// Nil is returned if the current resource is a root scoped resource, or this is a root scope.
+	// Parent returns the parent resource. If the current resource is a root scoped resource, then it returns its ParentScope().
+	// Nil is returned if the current resource is a root scope.
 	Parent() ResourceId
 
 	// Provider returns the provider namespace of this resource id.
@@ -485,7 +485,7 @@ func (id *ScopedResourceId) ParentScope() ResourceId {
 func (id *ScopedResourceId) Parent() ResourceId {
 	length := len(id.AttrTypes)
 	if length == 1 {
-		return nil
+		return id.ParentScope()
 	}
 	return &ScopedResourceId{
 		AttrParentScope: id.AttrParentScope,

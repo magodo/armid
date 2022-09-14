@@ -240,7 +240,7 @@ func TestResourceId_Parent(t *testing.T) {
 				AttrTypes:       []string{"foos"},
 				AttrNames:       []string{"foo1"},
 			},
-			expect: nil,
+			expect: &TenantId{},
 		},
 		{
 			name: "Child Scoped Resource under tenant",
