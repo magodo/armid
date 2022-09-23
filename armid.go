@@ -319,7 +319,7 @@ func (*ResourceGroup) Provider() string {
 }
 
 func (*ResourceGroup) Types() []string {
-	return []string{"subscriptions", "resourceGroups"}
+	return []string{"resourceGroups"}
 }
 
 func (*ResourceGroup) Names() []string {
