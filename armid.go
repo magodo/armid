@@ -38,6 +38,10 @@ type ResourceId interface {
 	// For root scopes, it is nil.
 	Names() []string
 
+	// TypeString returns the resource type string literal.
+	// For scoped resource, this is the same as their RouteScopeString, with the leading "/" trimmed.
+	TypeString() string
+
 	// String returns the resource id literal.
 	String() string
 
@@ -173,6 +177,10 @@ func (*TenantId) Names() []string {
 	return nil
 }
 
+func (*TenantId) TypeString() string {
+	return ""
+}
+
 func (*TenantId) String() string {
 	return "/"
 }
@@ -239,6 +247,10 @@ func (*SubscriptionId) Types() []string {
 
 func (*SubscriptionId) Names() []string {
 	return nil
+}
+
+func (id *SubscriptionId) TypeString() string {
+	return typeString(id)
 }
 
 func (id *SubscriptionId) String() string {
@@ -326,6 +338,10 @@ func (*ResourceGroup) Names() []string {
 	return nil
 }
 
+func (id *ResourceGroup) TypeString() string {
+	return typeString(id)
+}
+
 func (id *ResourceGroup) String() string {
 	scope := defaultResourceGroupScopeStr
 	if id.scopeStr != "" {
@@ -410,6 +426,10 @@ func (*ManagementGroup) Types() []string {
 
 func (*ManagementGroup) Names() []string {
 	return nil
+}
+
+func (id *ManagementGroup) TypeString() string {
+	return typeString(id)
 }
 
 func (id *ManagementGroup) String() string {
@@ -505,6 +525,10 @@ func (id *ScopedResourceId) Types() []string {
 
 func (id *ScopedResourceId) Names() []string {
 	return id.AttrNames
+}
+
+func (id *ScopedResourceId) TypeString() string {
+	return typeString(id)
 }
 
 func (id *ScopedResourceId) String() string {
@@ -641,6 +665,13 @@ func formatScope(provider string, types []string, names []string) string {
 		segs[1+2*i] = types[i]
 		segs[1+2*i+1] = names[i]
 	}
+	return strings.Join(segs, "/")
+}
+
+func typeString(id ResourceId) string {
+	var segs []string
+	segs = append(segs, id.Provider())
+	segs = append(segs, id.Types()...)
 	return strings.Join(segs, "/")
 }
 

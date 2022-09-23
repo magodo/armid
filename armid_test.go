@@ -141,6 +141,96 @@ func TestResourceId_String(t *testing.T) {
 	}
 }
 
+func TestResourceId_TypeString(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  ResourceId
+		expect string
+	}{
+		{
+			name:   "Tenant",
+			input:  &TenantId{},
+			expect: "",
+		},
+		{
+			name:   "Subscription",
+			input:  &SubscriptionId{Id: "sub1"},
+			expect: "Microsoft.Resources/subscriptions",
+		},
+		{
+			name:   "Resource Group",
+			input:  &ResourceGroup{SubscriptionId: "sub1", Name: "rg1"},
+			expect: "Microsoft.Resources/resourceGroups",
+		},
+		{
+			name:   "Management Group",
+			input:  &ManagementGroup{Name: "mg1"},
+			expect: "Microsoft.Management/managementGroups",
+		},
+		{
+			name: "Scoped Resource under tenant",
+			input: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under subscription",
+			input: &ScopedResourceId{
+				AttrParentScope: &SubscriptionId{Id: "sub1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under resource group",
+			input: &ScopedResourceId{
+				AttrParentScope: &ResourceGroup{SubscriptionId: "sub1", Name: "rg1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under management group",
+			input: &ScopedResourceId{
+				AttrParentScope: &ManagementGroup{Name: "mg1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under another scoped resource which under tenant",
+			input: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+					AttrTypes:       []string{"foos", "bars"},
+					AttrNames:       []string{"foo1", "bar1"},
+				},
+				AttrProvider: "Microsoft.Baz",
+				AttrTypes:    []string{"bazs"},
+				AttrNames:    []string{"baz1"},
+			},
+			expect: "Microsoft.Baz/bazs",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expect, tt.input.TypeString())
+		})
+	}
+}
+
 func TestResourceId_RootScope(t *testing.T) {
 	cases := []struct {
 		name   string
