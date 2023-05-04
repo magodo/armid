@@ -114,23 +114,23 @@ func ParseResourceId(id string) (ResourceId, error) {
 
 		var types, names []string
 
-		if len(segs) == 0 || strings.EqualFold(segs[0], "providers") {
-			return nil, fmt.Errorf("missing sub-type type")
-		}
-		for len(segs) != 0 {
-			types = append(types, segs[0])
-			segs = segs[1:]
+		if len(segs) != 0 && !strings.EqualFold(segs[0], "providers") {
+			for len(segs) != 0 {
+				types = append(types, segs[0])
+				segs = segs[1:]
 
-			if len(segs) == 0 {
-				return nil, fmt.Errorf("missing sub-type name")
-			}
-			names = append(names, segs[0])
-			segs = segs[1:]
+				if len(segs) == 0 {
+					return nil, fmt.Errorf("missing sub-type name")
+				}
+				names = append(names, segs[0])
+				segs = segs[1:]
 
-			if len(segs) != 0 && strings.EqualFold(segs[0], "providers") {
-				break
+				if len(segs) != 0 && strings.EqualFold(segs[0], "providers") {
+					break
+				}
 			}
 		}
+
 		rid = &ScopedResourceId{
 			AttrParentScope: rid,
 			AttrProvider:    provider,

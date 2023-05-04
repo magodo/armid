@@ -1123,6 +1123,25 @@ func TestParseResourceId(t *testing.T) {
 			},
 		},
 		{
+			name:  `RP level resource`,
+			input: "/providers/Microsoft.Foo",
+			expect: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+		},
+		{
+			name:  `Concatenated RP level resource`,
+			input: "/providers/Microsoft.Foo/providers/Microsoft.Bar",
+			expect: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+		},
+		{
 			name:  "empty string",
 			input: "",
 			err:   `id should start with "/"`,
@@ -1168,11 +1187,6 @@ func TestParseResourceId(t *testing.T) {
 			err:   `missing provider namespace segment`,
 		},
 		{
-			name:  `missing sub-type type`,
-			input: "/providers/Microsoft.Foo",
-			err:   `missing sub-type type`,
-		},
-		{
 			name:  `missing sub-type name`,
 			input: "/providers/Microsoft.Foo/foos",
 			err:   `missing sub-type name`,
@@ -1181,11 +1195,6 @@ func TestParseResourceId(t *testing.T) {
 			name:  `missing sub-type name in child`,
 			input: "/providers/Microsoft.Foo/foos/foo1/bars",
 			err:   `missing sub-type name`,
-		},
-		{
-			name:  `no sub-type in a scope`,
-			input: "/providers/Microsoft.Foo/providers/Microsoft.Bar",
-			err:   `missing sub-type type`,
 		},
 	}
 
