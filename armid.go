@@ -38,6 +38,11 @@ type ResourceId interface {
 	// For root scopes, it is nil.
 	Names() []string
 
+	// TypeString returns the resource type string literal.
+	// For scoped resource, this is the same as their RouteScopeString, with the leading "/" trimmed.
+	// For root scope resource, this is the same as "Microsoft.Resources" + id.ScopeString()
+	TypeString() string
+
 	// String returns the resource id literal.
 	String() string
 
@@ -51,6 +56,7 @@ type ResourceId interface {
 	ScopeString() string
 
 	// RouteScopeString is similar as ScopeString, but only for the router scope (i.e. the last scope).
+	// For root scope resource, this is the same as ScopeString.
 	RouteScopeString() string
 
 	// Normalize normalizes the invariant parts (e.g. Provider, Types) of the id  based on the input scope string.
@@ -104,7 +110,7 @@ func ParseResourceId(id string) (ResourceId, error) {
 
 	// Root scope level resources, indicating the ARM 1st-class resource types
 	if !strings.EqualFold(segs[0], "providers") {
-		rid, segs, err = extendIdByOneRP(rid, "", segs)
+		rid, segs, err = extendRootScopeByOneRP(rootScope, "", segs)
 		if err != nil {
 			return nil, fmt.Errorf("extending for root level RP: %v", err)
 		}
@@ -126,6 +132,39 @@ func ParseResourceId(id string) (ResourceId, error) {
 		}
 	}
 	return rid, nil
+}
+
+func extendRootScopeByOneRP(pid RootScope, rp string, segs []string) (ResourceId, []string, error) {
+	types := []string{}
+	names := []string{}
+	for len(segs) != 0 {
+		if strings.EqualFold(segs[0], "providers") {
+			break
+		}
+		types = append(types, segs[0])
+		segs = segs[1:]
+		if len(segs) == 0 {
+			return nil, nil, fmt.Errorf("missing resource type name after type %s", types[len(types)-1])
+		}
+		names = append(names, segs[0])
+		segs = segs[1:]
+	}
+	switch pid := pid.(type) {
+	case *ManagementGroup:
+		pid.AttrTypes = types
+		pid.AttrNames = names
+		return pid, segs, nil
+	case *SubscriptionId:
+		pid.AttrTypes = types
+		pid.AttrNames = names
+		return pid, segs, nil
+	case *ResourceGroup:
+		pid.AttrTypes = types
+		pid.AttrNames = names
+		return pid, segs, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported type %T", pid)
+	}
 }
 
 func extendIdByOneRP(pid ResourceId, rp string, segs []string) (ResourceId, []string, error) {
@@ -187,6 +226,10 @@ func (*TenantId) Names() []string {
 	return nil
 }
 
+func (*TenantId) TypeString() string {
+	return ""
+}
+
 func (*TenantId) String() string {
 	return "/"
 }
@@ -224,12 +267,20 @@ type SubscriptionId struct {
 	// Id is the UUID of this subscription
 	Id string
 
-	scopeStr string
+	AttrTypes []string
+	AttrNames []string
+
+	subscriptionsLiteralOverride string
 }
 
 var _ RootScope = &SubscriptionId{}
 
-var defaultSubscriptionScopeStr = "/subscriptions"
+func (id *SubscriptionId) subscriptionsLiteral() string {
+	if id.subscriptionsLiteralOverride != "" {
+		return id.subscriptionsLiteralOverride
+	}
+	return "subscriptions"
+}
 
 func (id *SubscriptionId) RootScope() RootScope {
 	return id
@@ -243,42 +294,82 @@ func (*SubscriptionId) Provider() string {
 	return "Microsoft.Resources"
 }
 
-func (*SubscriptionId) Parent() ResourceId {
-	return nil
+func (id *SubscriptionId) Parent() ResourceId {
+	length := len(id.AttrTypes)
+	if length == 0 {
+		return nil
+	}
+	return &SubscriptionId{
+		Id:                           id.Id,
+		subscriptionsLiteralOverride: id.subscriptionsLiteralOverride,
+		AttrTypes:                    id.AttrTypes[0 : length-1],
+		AttrNames:                    id.AttrNames[0 : length-1],
+	}
 }
 
-func (*SubscriptionId) Types() []string {
-	return []string{"subscriptions"}
+func (id *SubscriptionId) Types() []string {
+	l := []string{id.subscriptionsLiteral()}
+	l = append(l, id.AttrTypes...)
+	return l
 }
 
-func (*SubscriptionId) Names() []string {
-	return nil
+func (id *SubscriptionId) Names() []string {
+	l := []string{id.Id}
+	l = append(l, id.AttrNames...)
+	return l
+}
+
+func (id *SubscriptionId) TypeString() string {
+	return typeString(id)
 }
 
 func (id *SubscriptionId) String() string {
-	scope := defaultSubscriptionScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
+	segs := []string{id.subscriptionsLiteral(), id.Id}
+	for i := range id.AttrTypes {
+		segs = append(segs, id.AttrTypes[i])
+		segs = append(segs, id.AttrNames[i])
 	}
-	return scope + "/" + id.Id
+	return "/" + strings.Join(segs, "/")
 }
 
 func (id *SubscriptionId) Equal(oid ResourceId) bool {
-	oSubId, ok := oid.(*SubscriptionId)
-	return ok && strings.EqualFold(oSubId.Id, id.Id)
+	if !id.ScopeEqual(oid) {
+		return false
+	}
+	oSubId := oid.(*SubscriptionId)
+	if !strings.EqualFold(id.Id, oSubId.Id) {
+		return false
+	}
+	for i, v := range id.AttrNames {
+		if !strings.EqualFold(v, oSubId.AttrNames[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *SubscriptionId) ScopeEqual(oid ResourceId) bool {
-	_, ok := oid.(*SubscriptionId)
-	return ok
+	oSubId, ok := oid.(*SubscriptionId)
+	if !ok {
+		return false
+	}
+	if len(id.AttrTypes) != len(oSubId.AttrTypes) {
+		return false
+	}
+	for i, v := range id.AttrTypes {
+		if !strings.EqualFold(v, oSubId.AttrTypes[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *SubscriptionId) ScopeString() string {
-	scope := defaultSubscriptionScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
+	segs := []string{id.subscriptionsLiteral()}
+	for i := range id.AttrTypes {
+		segs = append(segs, id.AttrTypes[i])
 	}
-	return scope
+	return "/" + strings.Join(segs, "/")
 }
 
 func (id *SubscriptionId) RouteScopeString() string {
@@ -289,15 +380,24 @@ func (id *SubscriptionId) Normalize(scopeStr string) error {
 	if !strings.EqualFold(id.ScopeString(), scopeStr) {
 		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
 	}
-	id.scopeStr = scopeStr
+	segs := strings.Split(strings.TrimPrefix(scopeStr, "/"), "/")
+	id.subscriptionsLiteralOverride = segs[0]
+	id.AttrTypes = segs[1:]
 	return nil
 }
 
 func (id *SubscriptionId) Clone() ResourceId {
-	return &SubscriptionId{
-		Id:       id.Id,
-		scopeStr: id.scopeStr,
+	out := &SubscriptionId{
+		Id:                           id.Id,
+		subscriptionsLiteralOverride: id.subscriptionsLiteralOverride,
 	}
+	if id.AttrTypes != nil {
+		out.AttrTypes = append([]string{}, id.AttrTypes...)
+	}
+	if id.AttrNames != nil {
+		out.AttrNames = append([]string{}, id.AttrNames...)
+	}
+	return out
 }
 
 func (*SubscriptionId) isRootScope() {}
@@ -309,12 +409,28 @@ type ResourceGroup struct {
 	// Name is the name of this resource group
 	Name string
 
-	scopeStr string
+	AttrTypes []string
+	AttrNames []string
+
+	subscriptionsLiteralOverride  string
+	resourceGroupsLiteralOverride string
 }
 
 var _ RootScope = &ResourceGroup{}
 
-var defaultResourceGroupScopeStr = "/subscriptions/resourceGroups"
+func (id *ResourceGroup) subscriptionsLiteral() string {
+	if id.subscriptionsLiteralOverride != "" {
+		return id.subscriptionsLiteralOverride
+	}
+	return "subscriptions"
+}
+
+func (id *ResourceGroup) resourceGroupsLiteral() string {
+	if id.resourceGroupsLiteralOverride != "" {
+		return id.resourceGroupsLiteralOverride
+	}
+	return "resourceGroups"
+}
 
 func (id *ResourceGroup) RootScope() RootScope {
 	return id
@@ -324,48 +440,91 @@ func (*ResourceGroup) ParentScope() ResourceId {
 	return nil
 }
 
-func (*ResourceGroup) Parent() ResourceId {
-	return nil
+func (id *ResourceGroup) Parent() ResourceId {
+	length := len(id.AttrTypes)
+	if length == 0 {
+		return nil
+	}
+	return &ResourceGroup{
+		SubscriptionId:                id.SubscriptionId,
+		Name:                          id.Name,
+		subscriptionsLiteralOverride:  id.subscriptionsLiteralOverride,
+		resourceGroupsLiteralOverride: id.resourceGroupsLiteralOverride,
+		AttrTypes:                     id.AttrTypes[0 : length-1],
+		AttrNames:                     id.AttrNames[0 : length-1],
+	}
 }
 
 func (*ResourceGroup) Provider() string {
 	return "Microsoft.Resources"
 }
 
-func (*ResourceGroup) Types() []string {
-	return []string{"subscriptions", "resourceGroups"}
+func (id *ResourceGroup) Types() []string {
+	l := []string{id.subscriptionsLiteral(), id.resourceGroupsLiteral()}
+	l = append(l, id.AttrTypes...)
+	return l
 }
 
-func (*ResourceGroup) Names() []string {
-	return nil
+func (id *ResourceGroup) Names() []string {
+	l := []string{id.SubscriptionId, id.Name}
+	l = append(l, id.AttrNames...)
+	return l
+}
+
+func (id *ResourceGroup) TypeString() string {
+	return typeString(id)
 }
 
 func (id *ResourceGroup) String() string {
-	scope := defaultResourceGroupScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
+	segs := []string{id.subscriptionsLiteral(), id.SubscriptionId, id.resourceGroupsLiteral(), id.Name}
+	for i := range id.AttrTypes {
+		segs = append(segs, id.AttrTypes[i])
+		segs = append(segs, id.AttrNames[i])
 	}
-	segs := strings.Split(scope, "/")
-	return "/" + segs[1] + "/" +
-		id.SubscriptionId + "/" + segs[2] + "/" + id.Name
+	return "/" + strings.Join(segs, "/")
 }
 
 func (id *ResourceGroup) Equal(oid ResourceId) bool {
-	oRgId, ok := oid.(*ResourceGroup)
-	return ok && strings.EqualFold(oRgId.SubscriptionId, id.SubscriptionId) && strings.EqualFold(oRgId.Name, id.Name)
+	if !id.ScopeEqual(oid) {
+		return false
+	}
+	oRgId := oid.(*ResourceGroup)
+	if !strings.EqualFold(id.SubscriptionId, oRgId.SubscriptionId) {
+		return false
+	}
+	if !strings.EqualFold(id.Name, oRgId.Name) {
+		return false
+	}
+	for i, v := range id.AttrNames {
+		if !strings.EqualFold(v, oRgId.AttrNames[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *ResourceGroup) ScopeEqual(oid ResourceId) bool {
-	_, ok := oid.(*ResourceGroup)
-	return ok
+	oRgId, ok := oid.(*ResourceGroup)
+	if !ok {
+		return false
+	}
+	if len(id.AttrTypes) != len(oRgId.AttrTypes) {
+		return false
+	}
+	for i, v := range id.AttrTypes {
+		if !strings.EqualFold(v, oRgId.AttrTypes[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *ResourceGroup) ScopeString() string {
-	scope := defaultResourceGroupScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
+	segs := []string{id.subscriptionsLiteral(), id.resourceGroupsLiteral()}
+	for i := range id.AttrTypes {
+		segs = append(segs, id.AttrTypes[i])
 	}
-	return scope
+	return "/" + strings.Join(segs, "/")
 }
 
 func (id *ResourceGroup) RouteScopeString() string {
@@ -376,16 +535,27 @@ func (id *ResourceGroup) Normalize(scopeStr string) error {
 	if !strings.EqualFold(id.ScopeString(), scopeStr) {
 		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
 	}
-	id.scopeStr = scopeStr
+	segs := strings.Split(strings.TrimPrefix(scopeStr, "/"), "/")
+	id.subscriptionsLiteralOverride = segs[0]
+	id.resourceGroupsLiteralOverride = segs[1]
+	id.AttrTypes = segs[2:]
 	return nil
 }
 
 func (id *ResourceGroup) Clone() ResourceId {
-	return &ResourceGroup{
-		SubscriptionId: id.SubscriptionId,
-		Name:           id.Name,
-		scopeStr:       id.scopeStr,
+	out := &ResourceGroup{
+		SubscriptionId:                id.SubscriptionId,
+		Name:                          id.Name,
+		subscriptionsLiteralOverride:  id.subscriptionsLiteralOverride,
+		resourceGroupsLiteralOverride: id.resourceGroupsLiteralOverride,
 	}
+	if id.AttrTypes != nil {
+		out.AttrTypes = append([]string{}, id.AttrTypes...)
+	}
+	if id.AttrNames != nil {
+		out.AttrNames = append([]string{}, id.AttrNames...)
+	}
+	return out
 }
 
 func (*ResourceGroup) isRootScope() {}
@@ -395,12 +565,28 @@ type ManagementGroup struct {
 	// Name is the name of this management group
 	Name string
 
-	scopeStr string
+	AttrTypes []string
+	AttrNames []string
+
+	microsoftManagementLiteralOverride string
+	managementGroupsLiteralOverride    string
 }
 
 var _ RootScope = &ManagementGroup{}
 
-var defaultManagementGroupScopeStr = "/Microsoft.Management/managementGroups"
+func (id *ManagementGroup) microsoftManagementLiteral() string {
+	if id.microsoftManagementLiteralOverride != "" {
+		return id.microsoftManagementLiteralOverride
+	}
+	return "Microsoft.Management"
+}
+
+func (id *ManagementGroup) managementGroupsLiteral() string {
+	if id.managementGroupsLiteralOverride != "" {
+		return id.managementGroupsLiteralOverride
+	}
+	return "managementGroups"
+}
 
 func (id *ManagementGroup) RootScope() RootScope {
 	return id
@@ -410,47 +596,81 @@ func (*ManagementGroup) ParentScope() ResourceId {
 	return nil
 }
 
-func (*ManagementGroup) Parent() ResourceId {
-	return nil
+func (id *ManagementGroup) Parent() ResourceId {
+	length := len(id.AttrTypes)
+	if length == 0 {
+		return nil
+	}
+	return &ManagementGroup{
+		Name:                               id.Name,
+		AttrTypes:                          id.AttrTypes[0 : length-1],
+		AttrNames:                          id.AttrNames[0 : length-1],
+		microsoftManagementLiteralOverride: id.microsoftManagementLiteralOverride,
+		managementGroupsLiteralOverride:    id.managementGroupsLiteralOverride,
+	}
 }
 
-func (*ManagementGroup) Provider() string {
-	return "Microsoft.Management"
+func (id *ManagementGroup) Provider() string {
+	return id.microsoftManagementLiteral()
 }
 
-func (*ManagementGroup) Types() []string {
-	return []string{"managementGroups"}
+func (id *ManagementGroup) Types() []string {
+	l := []string{id.managementGroupsLiteral()}
+	l = append(l, id.AttrTypes...)
+	return l
 }
 
-func (*ManagementGroup) Names() []string {
-	return nil
+func (id *ManagementGroup) Names() []string {
+	l := []string{id.Name}
+	l = append(l, id.AttrNames...)
+	return l
+}
+
+func (id *ManagementGroup) TypeString() string {
+	return typeString(id)
 }
 
 func (id *ManagementGroup) String() string {
-	scope := defaultManagementGroupScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
-	}
-	segs := strings.Split(scope, "/")
-	return "/providers/" + segs[1] + "/" + segs[2] + "/" + id.Name
+	return formatScope(id.Provider(), id.Types(), id.Names())
 }
 
 func (id *ManagementGroup) Equal(oid ResourceId) bool {
-	oMgId, ok := oid.(*ManagementGroup)
-	return ok && strings.EqualFold(oMgId.Name, id.Name)
+	if !id.ScopeEqual(oid) {
+		return false
+	}
+	oMgmtId := oid.(*ManagementGroup)
+	if !strings.EqualFold(id.Name, oMgmtId.Name) {
+		return false
+	}
+	for i, v := range id.AttrNames {
+		if !strings.EqualFold(v, oMgmtId.AttrNames[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *ManagementGroup) ScopeEqual(oid ResourceId) bool {
-	_, ok := oid.(*ManagementGroup)
-	return ok
+	oMgmtId, ok := oid.(*ManagementGroup)
+	if !ok {
+		return false
+	}
+	if len(id.AttrTypes) != len(oMgmtId.AttrTypes) {
+		return false
+	}
+	for i, v := range id.AttrTypes {
+		if !strings.EqualFold(v, oMgmtId.AttrTypes[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (id *ManagementGroup) ScopeString() string {
-	scope := defaultManagementGroupScopeStr
-	if id.scopeStr != "" {
-		scope = id.scopeStr
-	}
-	return scope
+	var segs []string
+	segs = append(segs, id.Provider())
+	segs = append(segs, id.Types()...)
+	return "/" + strings.Join(segs, "/")
 }
 
 func (id *ManagementGroup) RouteScopeString() string {
@@ -461,15 +681,26 @@ func (id *ManagementGroup) Normalize(scopeStr string) error {
 	if !strings.EqualFold(id.ScopeString(), scopeStr) {
 		return fmt.Errorf("mismatch route scope string (%q) for id %q", scopeStr, id.String())
 	}
-	id.scopeStr = scopeStr
+	segs := strings.Split(strings.TrimPrefix(scopeStr, "/"), "/")
+	id.microsoftManagementLiteralOverride = segs[0]
+	id.managementGroupsLiteralOverride = segs[1]
+	id.AttrTypes = segs[2:]
 	return nil
 }
 
 func (id *ManagementGroup) Clone() ResourceId {
-	return &ManagementGroup{
-		Name:     id.Name,
-		scopeStr: id.scopeStr,
+	out := &ManagementGroup{
+		Name:                               id.Name,
+		microsoftManagementLiteralOverride: id.microsoftManagementLiteralOverride,
+		managementGroupsLiteralOverride:    id.managementGroupsLiteralOverride,
 	}
+	if id.AttrTypes != nil {
+		out.AttrTypes = append([]string{}, id.AttrTypes...)
+	}
+	if id.AttrNames != nil {
+		out.AttrNames = append([]string{}, id.AttrNames...)
+	}
+	return out
 }
 
 func (ManagementGroup) isRootScope() {}
@@ -521,6 +752,10 @@ func (id *ScopedResourceId) Names() []string {
 	return id.AttrNames
 }
 
+func (id *ScopedResourceId) TypeString() string {
+	return typeString(id)
+}
+
 func (id *ScopedResourceId) String() string {
 	builder := strings.Builder{}
 	if _, ok := id.ParentScope().(*TenantId); !ok {
@@ -538,16 +773,8 @@ func (id *ScopedResourceId) Equal(oid ResourceId) bool {
 	if !id.AttrParentScope.Equal(oRid.AttrParentScope) {
 		return false
 	}
-	if !strings.EqualFold(id.AttrProvider, oRid.AttrProvider) {
+	if !id.ScopeEqual(oid) {
 		return false
-	}
-	if len(id.AttrTypes) != len(oRid.AttrTypes) {
-		return false
-	}
-	for i := 0; i < len(id.AttrTypes); i++ {
-		if !strings.EqualFold(id.AttrTypes[i], oRid.AttrTypes[i]) {
-			return false
-		}
 	}
 	if len(id.AttrNames) != len(oRid.AttrNames) {
 		return false
@@ -568,14 +795,14 @@ func (id *ScopedResourceId) ScopeEqual(oid ResourceId) bool {
 	if !id.AttrParentScope.ScopeEqual(oRid.AttrParentScope) {
 		return false
 	}
-	if id.AttrProvider != oRid.AttrProvider {
+	if !strings.EqualFold(id.AttrProvider, oRid.AttrProvider) {
 		return false
 	}
 	if len(id.AttrTypes) != len(oRid.AttrTypes) {
 		return false
 	}
 	for i := 0; i < len(id.AttrTypes); i++ {
-		if id.AttrTypes[i] != oRid.AttrTypes[i] {
+		if !strings.EqualFold(id.AttrTypes[i], oRid.AttrTypes[i]) {
 			return false
 		}
 	}
@@ -595,9 +822,7 @@ func (id *ScopedResourceId) ScopeString() string {
 
 func (id *ScopedResourceId) RouteScopeString() string {
 	var segs []string
-	if id.Provider() != "" {
-		segs = append(segs, id.Provider())
-	}
+	segs = append(segs, id.Provider())
 	segs = append(segs, id.Types()...)
 	return "/" + strings.Join(segs, "/")
 }
@@ -633,12 +858,17 @@ func (id *ScopedResourceId) Normalize(scopeStr string) error {
 }
 
 func (id *ScopedResourceId) Clone() ResourceId {
-	return &ScopedResourceId{
+	out := &ScopedResourceId{
 		AttrParentScope: id.ParentScope().Clone(),
 		AttrProvider:    id.AttrProvider,
-		AttrTypes:       append([]string{}, id.AttrTypes...),
-		AttrNames:       append([]string{}, id.AttrNames...),
 	}
+	if id.AttrTypes != nil {
+		out.AttrTypes = append([]string{}, id.AttrTypes...)
+	}
+	if id.AttrNames != nil {
+		out.AttrNames = append([]string{}, id.AttrNames...)
+	}
+	return out
 }
 
 // NormalizeRouteScope is similar to Normalize, while only for the current route scope, and didn't affect the parent scopes.
@@ -658,14 +888,19 @@ func formatScope(provider string, types []string, names []string) string {
 		panic(fmt.Sprintf("invalid input: len(%v) != len(%v)", types, names))
 	}
 	var segs []string
-	if provider != "" {
-		segs = append(segs, "providers", provider)
-	}
+	segs = append(segs, "/providers", provider)
 	for i := 0; i < len(types); i++ {
 		segs = append(segs, types[i])
 		segs = append(segs, names[i])
 	}
-	return "/" + strings.Join(segs, "/")
+	return strings.Join(segs, "/")
+}
+
+func typeString(id ResourceId) string {
+	var segs []string
+	segs = append(segs, id.Provider())
+	segs = append(segs, id.Types()...)
+	return strings.Join(segs, "/")
 }
 
 // traverScopes traverse the scopes of the given resource id from the root scope to the router scope.

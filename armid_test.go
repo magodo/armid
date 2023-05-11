@@ -134,10 +134,8 @@ func TestResourceId_String(t *testing.T) {
 		},
 		{
 			name: "Subscription scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			input: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
@@ -145,15 +143,22 @@ func TestResourceId_String(t *testing.T) {
 		},
 		{
 			name: "Resource group scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			input: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
 			},
 			expect: "/subscriptions/sub1/resourceGroups/rg1/deployments/deploy1",
+		},
+		{
+			name: "Mgmt group scope level resource",
+			input: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: "/providers/Microsoft.Management/managementGroups/group1/foos/foo1",
 		},
 		{
 			name: `RP level resource`,
@@ -183,6 +188,147 @@ func TestResourceId_String(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.expect, tt.input.String())
+		})
+	}
+}
+
+func TestResourceId_TypeString(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  ResourceId
+		expect string
+	}{
+		{
+			name:   "Tenant",
+			input:  &TenantId{},
+			expect: "",
+		},
+		{
+			name:   "Subscription",
+			input:  &SubscriptionId{Id: "sub1"},
+			expect: "Microsoft.Resources/subscriptions",
+		},
+		{
+			name:   "Resource Group",
+			input:  &ResourceGroup{SubscriptionId: "sub1", Name: "rg1"},
+			expect: "Microsoft.Resources/subscriptions/resourceGroups",
+		},
+		{
+			name:   "Management Group",
+			input:  &ManagementGroup{Name: "mg1"},
+			expect: "Microsoft.Management/managementGroups",
+		},
+		{
+			name: "Scoped Resource under tenant",
+			input: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under subscription",
+			input: &ScopedResourceId{
+				AttrParentScope: &SubscriptionId{Id: "sub1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under resource group",
+			input: &ScopedResourceId{
+				AttrParentScope: &ResourceGroup{SubscriptionId: "sub1", Name: "rg1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under management group",
+			input: &ScopedResourceId{
+				AttrParentScope: &ManagementGroup{Name: "mg1"},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{"foos", "bars"},
+				AttrNames:       []string{"foo1", "bar1"},
+			},
+			expect: "Microsoft.Foo/foos/bars",
+		},
+		{
+			name: "Scoped Resource under another scoped resource which under tenant",
+			input: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+					AttrTypes:       []string{"foos", "bars"},
+					AttrNames:       []string{"foo1", "bar1"},
+				},
+				AttrProvider: "Microsoft.Baz",
+				AttrTypes:    []string{"bazs"},
+				AttrNames:    []string{"baz1"},
+			},
+			expect: "Microsoft.Baz/bazs",
+		},
+		{
+			name: "Subscription scope level resource",
+			input: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			expect: "Microsoft.Resources/subscriptions/tagNames/tagValues",
+		},
+		{
+			name: "Resource group scope level resource",
+			input: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			expect: "Microsoft.Resources/subscriptions/resourceGroups/deployments",
+		},
+		{
+			name: "Mgmt group scope level resource",
+			input: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: "Microsoft.Management/managementGroups/foos",
+		},
+		{
+			name: `RP level resource`,
+			input: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+				AttrTypes:       []string{},
+				AttrNames:       []string{},
+			},
+			expect: "Microsoft.Foo",
+		},
+		{
+			name: `RP level resource under another RP level resource`,
+			input: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+					AttrTypes:       []string{},
+					AttrNames:       []string{},
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			expect: "Microsoft.Bar",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expect, tt.input.TypeString())
 		})
 	}
 }
@@ -245,30 +391,43 @@ func TestResourceId_RootScope(t *testing.T) {
 		},
 		{
 			name: "Subscription scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			input: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
 			expect: &SubscriptionId{
-				Id: "sub1",
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
 			},
 		},
 		{
 			name: "Resource group scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			input: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
 			},
 			expect: &ResourceGroup{
 				SubscriptionId: "sub1",
 				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+		},
+		{
+			name: "Mgmt group scope level resource",
+			input: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
 			},
 		},
 		{
@@ -357,36 +516,41 @@ func TestResourceId_Parent(t *testing.T) {
 		},
 		{
 			name: "Subscription scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			input: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
-			expect: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			expect: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames"},
 				AttrNames: []string{"name1"},
 			},
 		},
 		{
 			name: "Resource group scope level resource",
-			input: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			input: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
 			},
-			expect: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
+			expect: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{},
+				AttrNames:      []string{},
+			},
+		},
+		{
+			name: "Mgmt group scope level resource",
+			input: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: &ManagementGroup{
+				Name:      "group1",
 				AttrTypes: []string{},
 				AttrNames: []string{},
 			},
@@ -522,6 +686,80 @@ func TestResourceId_Equal(t *testing.T) {
 			},
 			expect: false,
 		},
+		{
+			name: "Subscription scope level resource",
+			id: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			oid: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			expect: true,
+		},
+		{
+			name: "Resource group scope level resource",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			oid: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			expect: true,
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			oid: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: true,
+		},
+		{
+			name: `RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			oid: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			expect: true,
+		},
+		{
+			name: `RP level resource under another RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			oid: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			expect: true,
+		},
 	}
 
 	for _, tt := range cases {
@@ -616,6 +854,80 @@ func TestResourceId_ScopeEqual(t *testing.T) {
 			},
 			expect: false,
 		},
+		{
+			name: "Subscription scope level resource",
+			id: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			oid: &SubscriptionId{
+				Id:        "sub2",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name2", "value2"},
+			},
+			expect: true,
+		},
+		{
+			name: "Resource group scope level resource",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			oid: &ResourceGroup{
+				SubscriptionId: "sub2",
+				Name:           "rg2",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy2"},
+			},
+			expect: true,
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			oid: &ManagementGroup{
+				Name:      "group2",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo2"},
+			},
+			expect: true,
+		},
+		{
+			name: `RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			oid: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			expect: true,
+		},
+		{
+			name: `RP level resource under another RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			oid: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			expect: true,
+		},
 	}
 
 	for _, tt := range cases {
@@ -689,10 +1001,8 @@ func TestResourceId_ScopeString(t *testing.T) {
 		},
 		{
 			name: "Subscription scope level resource",
-			id: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			id: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
@@ -700,15 +1010,22 @@ func TestResourceId_ScopeString(t *testing.T) {
 		},
 		{
 			name: "Resource group scope level resource",
-			id: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
 			},
 			expect: "/subscriptions/resourceGroups/deployments",
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: "/Microsoft.Management/managementGroups/foos",
 		},
 		{
 			name: `RP level resource`,
@@ -815,26 +1132,31 @@ func TestResourceId_RouteScopeString(t *testing.T) {
 		},
 		{
 			name: "Subscription scope level resource",
-			id: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			id: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
-			expect: "/tagNames/tagValues",
+			expect: "/subscriptions/tagNames/tagValues",
 		},
 		{
 			name: "Resource group scope level resource",
-			id: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
 			},
-			expect: "/deployments",
+			expect: "/subscriptions/resourceGroups/deployments",
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: "/Microsoft.Management/managementGroups/foos",
 		},
 		{
 			name: `RP level resource`,
@@ -951,6 +1273,58 @@ func TestScopedResourceId_Normalize(t *testing.T) {
 			scopeStr: "/SUBSCRIPTIONS/RESOURCEGROUPS/MICROSOFT.FOO/FOOS",
 			expect:   "/SUBSCRIPTIONS/sub1/RESOURCEGROUPS/rg1/providers/MICROSOFT.FOO/FOOS/foo1",
 		},
+		{
+			name: "Subscription scope level resource",
+			id: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			scopeStr: "/SUBSCRIPTIONS/TAGNAMES/TAGVALUES",
+			expect:   "/SUBSCRIPTIONS/sub1/TAGNAMES/name1/TAGVALUES/value1",
+		},
+		{
+			name: "Resource group scope level resource",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			scopeStr: "/SUBSCRIPTIONS/RESOURCEGROUPS/DEPLOYMENTS",
+			expect:   "/SUBSCRIPTIONS/sub1/RESOURCEGROUPS/rg1/DEPLOYMENTS/deploy1",
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			scopeStr: "/MICROSOFT.MANAGEMENT/MANAGEMENTGROUPS/FOOS",
+			expect:   "/providers/MICROSOFT.MANAGEMENT/MANAGEMENTGROUPS/group1/FOOS/foo1",
+		},
+		{
+			name: `RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			scopeStr: "/MICROSOFT.FOO",
+			expect:   "/providers/MICROSOFT.FOO",
+		},
+		{
+			name: `RP level resource under another RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			scopeStr: "/MICROSOFT.FOO/MICROSOFT.BAR",
+			expect:   "/providers/MICROSOFT.FOO/providers/MICROSOFT.BAR",
+		},
 	}
 
 	for _, tt := range cases {
@@ -1059,6 +1433,75 @@ func TestScopedResourceId_Clone(t *testing.T) {
 				AttrProvider: "Microsoft.Foo",
 				AttrTypes:    []string{"foos"},
 				AttrNames:    []string{"foo1"},
+			},
+		},
+		{
+			name: "Subscription scope level resource",
+			id: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+			expect: &SubscriptionId{
+				Id:        "sub1",
+				AttrTypes: []string{"tagNames", "tagValues"},
+				AttrNames: []string{"name1", "value1"},
+			},
+		},
+		{
+			name: "Resource group scope level resource",
+			id: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+			expect: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+		},
+		{
+			name: "Mgmt group scope level resource",
+			id: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+			expect: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
+			},
+		},
+		{
+			name: `RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+			expect: &ScopedResourceId{
+				AttrParentScope: &TenantId{},
+				AttrProvider:    "Microsoft.Foo",
+			},
+		},
+		{
+			name: `RP level resource under another RP level resource`,
+			id: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
+			},
+			expect: &ScopedResourceId{
+				AttrParentScope: &ScopedResourceId{
+					AttrParentScope: &TenantId{},
+					AttrProvider:    "Microsoft.Foo",
+				},
+				AttrProvider: "Microsoft.Bar",
 			},
 		},
 	}
@@ -1285,10 +1728,8 @@ func TestParseResourceId(t *testing.T) {
 		{
 			name:  "Subscription scope level resource",
 			input: "/subscriptions/sub1/tagNames/name1/tagValues/value1",
-			expect: &ScopedResourceId{
-				AttrParentScope: &SubscriptionId{
-					Id: "sub1",
-				},
+			expect: &SubscriptionId{
+				Id:        "sub1",
 				AttrTypes: []string{"tagNames", "tagValues"},
 				AttrNames: []string{"name1", "value1"},
 			},
@@ -1296,13 +1737,20 @@ func TestParseResourceId(t *testing.T) {
 		{
 			name:  "Resource group scope level resource",
 			input: "/subscriptions/sub1/resourceGroups/rg1/deployments/deploy1",
-			expect: &ScopedResourceId{
-				AttrParentScope: &ResourceGroup{
-					SubscriptionId: "sub1",
-					Name:           "rg1",
-				},
-				AttrTypes: []string{"deployments"},
-				AttrNames: []string{"deploy1"},
+			expect: &ResourceGroup{
+				SubscriptionId: "sub1",
+				Name:           "rg1",
+				AttrTypes:      []string{"deployments"},
+				AttrNames:      []string{"deploy1"},
+			},
+		},
+		{
+			name:  "Mgmt group scope level resource",
+			input: "/providers/Microsoft.Management/managementGroups/group1/foos/foo1",
+			expect: &ManagementGroup{
+				Name:      "group1",
+				AttrTypes: []string{"foos"},
+				AttrNames: []string{"foo1"},
 			},
 		},
 		{
