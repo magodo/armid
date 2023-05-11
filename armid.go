@@ -95,46 +95,60 @@ func ParseResourceId(id string) (ResourceId, error) {
 		segs = segs[4:]
 	}
 
+	if len(segs) == 0 {
+		return rootScope, nil
+	}
+
 	var rid ResourceId = rootScope
+	var err error
+
+	// Root scope level resources, indicating the ARM 1st-class resource types
+	if !strings.EqualFold(segs[0], "providers") {
+		rid, segs, err = extendIdByOneRP(rid, "", segs)
+		if err != nil {
+			return nil, fmt.Errorf("extending for root level RP: %v", err)
+		}
+	}
+
 	for len(segs) != 0 {
 		if !strings.EqualFold(segs[0], "providers") {
 			return nil, fmt.Errorf(`scopes should be split by "/providers/"`)
 		}
 		segs = segs[1:]
-
 		if len(segs) == 0 {
 			return nil, fmt.Errorf("missing provider namespace segment")
 		}
-		provider := segs[0]
+		rp := segs[0]
 		segs = segs[1:]
-
-		var types, names []string
-
-		if len(segs) == 0 || strings.EqualFold(segs[0], "providers") {
-			return nil, fmt.Errorf("missing sub-type type")
-		}
-		for len(segs) != 0 {
-			types = append(types, segs[0])
-			segs = segs[1:]
-
-			if len(segs) == 0 {
-				return nil, fmt.Errorf("missing sub-type name")
-			}
-			names = append(names, segs[0])
-			segs = segs[1:]
-
-			if len(segs) != 0 && strings.EqualFold(segs[0], "providers") {
-				break
-			}
-		}
-		rid = &ScopedResourceId{
-			AttrParentScope: rid,
-			AttrProvider:    provider,
-			AttrTypes:       types,
-			AttrNames:       names,
+		rid, segs, err = extendIdByOneRP(rid, rp, segs)
+		if err != nil {
+			return nil, fmt.Errorf("extending for RP %s: %v", rp, err)
 		}
 	}
 	return rid, nil
+}
+
+func extendIdByOneRP(pid ResourceId, rp string, segs []string) (ResourceId, []string, error) {
+	types := []string{}
+	names := []string{}
+	for len(segs) != 0 {
+		if strings.EqualFold(segs[0], "providers") {
+			break
+		}
+		types = append(types, segs[0])
+		segs = segs[1:]
+		if len(segs) == 0 {
+			return nil, nil, fmt.Errorf("missing resource type name after type %s", types[len(types)-1])
+		}
+		names = append(names, segs[0])
+		segs = segs[1:]
+	}
+	return &ScopedResourceId{
+		AttrParentScope: pid,
+		AttrProvider:    rp,
+		AttrTypes:       types,
+		AttrNames:       names,
+	}, segs, nil
 }
 
 // RootScope is a special resource id, that represents a root scope as defined by ARM.
@@ -484,7 +498,7 @@ func (id *ScopedResourceId) ParentScope() ResourceId {
 
 func (id *ScopedResourceId) Parent() ResourceId {
 	length := len(id.AttrTypes)
-	if length == 1 {
+	if length == 0 {
 		return nil
 	}
 	return &ScopedResourceId{
@@ -569,12 +583,21 @@ func (id *ScopedResourceId) ScopeEqual(oid ResourceId) bool {
 }
 
 func (id *ScopedResourceId) ScopeString() string {
-	return scopeString(id)
+	var out string
+	traverseScopes(id, func(id ResourceId) {
+		if _, ok := id.(*TenantId); ok {
+			return
+		}
+		out += id.RouteScopeString()
+	})
+	return out
 }
 
 func (id *ScopedResourceId) RouteScopeString() string {
 	var segs []string
-	segs = append(segs, id.Provider())
+	if id.Provider() != "" {
+		segs = append(segs, id.Provider())
+	}
 	segs = append(segs, id.Types()...)
 	return "/" + strings.Join(segs, "/")
 }
@@ -634,25 +657,15 @@ func formatScope(provider string, types []string, names []string) string {
 	if len(types) != len(names) {
 		panic(fmt.Sprintf("invalid input: len(%v) != len(%v)", types, names))
 	}
-	l := len(types)
-	segs := make([]string, 1+2*l)
-	segs[0] = "/providers/" + provider
-	for i := 0; i < l; i++ {
-		segs[1+2*i] = types[i]
-		segs[1+2*i+1] = names[i]
+	var segs []string
+	if provider != "" {
+		segs = append(segs, "providers", provider)
 	}
-	return strings.Join(segs, "/")
-}
-
-func scopeString(id ResourceId) string {
-	var out string
-	traverseScopes(id, func(id ResourceId) {
-		if _, ok := id.(*TenantId); ok {
-			return
-		}
-		out += id.RouteScopeString()
-	})
-	return out
+	for i := 0; i < len(types); i++ {
+		segs = append(segs, types[i])
+		segs = append(segs, names[i])
+	}
+	return "/" + strings.Join(segs, "/")
 }
 
 // traverScopes traverse the scopes of the given resource id from the root scope to the router scope.
